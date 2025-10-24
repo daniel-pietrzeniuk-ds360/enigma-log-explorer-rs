@@ -40,7 +40,7 @@ pub fn if_session_can_be_run_in_parallel(args: CliCheckIfSessionsCanBeRunInParal
                 && !changes.contains(&(session_id, curr_session_id))
             {
                 evidence.push(format!("Line: {idx} - changes from SessionId({curr_session_id}) to SessionId({session_id})"));
-                changes.insert((session_id, curr_session_id).clone());
+                changes.insert((session_id, curr_session_id));
                 curr_session_id = session_id;
             }
         }

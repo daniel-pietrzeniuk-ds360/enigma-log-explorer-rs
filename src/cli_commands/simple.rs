@@ -26,14 +26,14 @@ pub fn simple_handler(args: CliSimpleArgs) {
     let mut is_input_file_containing_start_line_pattern = false;
 
     for line in file_content.iter() {
-        if is_input_file_containing_start_line_pattern == false
+        if !is_input_file_containing_start_line_pattern
             && line.contains(&start_line_pattern)
         {
             is_input_file_containing_start_line_pattern = true;
         }
 
         if is_input_file_containing_start_line_pattern {
-            println!("{}", line)
+            println!("{line}")
         }
 
         if line.contains(&end_line_pattern) {
@@ -41,7 +41,7 @@ pub fn simple_handler(args: CliSimpleArgs) {
         }
     }
 
-    if is_input_file_containing_start_line_pattern == false {
+    if !is_input_file_containing_start_line_pattern {
         panic!("Given file does not contain string (\"{start_line_pattern}\")");
     }
 }

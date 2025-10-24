@@ -19,13 +19,13 @@ pub fn check_handler(args: CliCheckArgs) {
 }
 
 fn log_question(text: &str) {
-    println!("Question: {}", text);
+    println!("Question: {text}");
 }
 
 fn log_answer(text: &str) {
-    println!("Answer: {}", text);
+    println!("Answer: {text}");
 }
 
 fn log_evidence(text: &str) {
-    println!("Evidence:\n{}", text);
+    println!("Evidence:\n{text}");
 }

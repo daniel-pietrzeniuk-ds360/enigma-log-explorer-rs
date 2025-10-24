@@ -66,7 +66,7 @@ pub fn session_handler(args: CliSessionArgs) {
             }
 
             if has_found_session_id {
-                writeln!(output_stream, "{}", line).expect("Be able to write output");
+                writeln!(output_stream, "{line}").expect("Be able to write output");
                 // output_stream.write_all(line.as_bytes()).expect("Be able to write output");
 
                 if line.contains(&args.end_pattern) {
@@ -82,13 +82,13 @@ pub fn session_handler(args: CliSessionArgs) {
             if line.contains(&session_id_string) {
                 end_line_idx = Some(idx);
 
-                if start_line_idx == None {
+                if start_line_idx.is_none() {
                     start_line_idx = Some(idx);
                 }
             }
         }
 
-        if start_line_idx == None {
+        if start_line_idx.is_none() {
             panic!("Given file does not contain string (\"{session_id_string}\")");
         } else {
             let skip = start_line_idx.expect("`start_line_idx` should be Some at this point");
