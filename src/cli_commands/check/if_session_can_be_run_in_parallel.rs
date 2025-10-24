@@ -14,11 +14,7 @@ pub fn if_session_can_be_run_in_parallel(args: CliCheckIfSessionsCanBeRunInParal
 
     let bytes = fs::read(&args.input_file_path).expect("Failed to read file");
 
-    // Converts bytes to UTF-8, replacing invalid sequences with �
     let file_content = String::from_utf8_lossy(&bytes);
-
-    // let file_content = read_to_string(&session_args.input_file_path)
-    //     .expect(&format!("\"{}\" should be a valid file", &session_args.input_file_path));
     let file_content: Vec<&str> = file_content.lines().collect();
 
     let mut curr_session_id = i32::MIN;
