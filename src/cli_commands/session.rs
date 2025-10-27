@@ -47,11 +47,6 @@ pub fn session_handler(mut args: CliSessionArgs) {
         args.end_pattern_mode = true;
     }
 
-    let bytes = fs::read(&args.input_file_path).expect("Failed to read file");
-
-    let file_content = String::from_utf8_lossy(&bytes);
-    let file_content: Vec<&str> = file_content.lines().collect();
-
     let session_id_string = format!("SessionId: {}", args.session_id);
 
     let mut output_stream: Box<dyn Write> = if args.file {
@@ -68,67 +63,63 @@ pub fn session_handler(mut args: CliSessionArgs) {
     };
 
     if args.end_pattern_mode {
-        if !args.watch_new {
-            let mut has_found_session_id = false;
+        let (tx, rx) = channel();
 
-            for line in file_content {
-                if !has_found_session_id && line.contains(&session_id_string) {
-                    has_found_session_id = true;
-                }
+        let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).unwrap();
+        watcher
+            .watch(
+                std::path::Path::new(&args.input_file_path),
+                RecursiveMode::NonRecursive,
+            )
+            .unwrap();
 
-                if has_found_session_id {
-                    writeln!(output_stream, "{line}").expect("Be able to write output");
+        let file = File::open(&args.input_file_path).unwrap();
 
-                    if line.contains(&session_id_string) && line.contains(&args.end_pattern) {
-                        dbg!(
-                            "end_pattern_mode prepass finished due finding end_pattern on line: \"{:?}\"",
-                            line
-                        );
-                        return;
-                    }
-                }
+        let mut pos = if !args.watch_new {
+            let (found_end_pattern, new_pos) = read_file(
+                &args.input_file_path,
+                output_stream.by_ref(),
+                &session_id_string,
+                0,
+                &args.end_pattern,
+            );
+
+            if found_end_pattern {
+                return;
             }
-        }
+
+            new_pos
+        } else {
+            file.metadata().unwrap().len()
+        };
 
         if args.watch {
-            let (tx, rx) = channel();
-
-            let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).unwrap();
-            watcher
-                .watch(
-                    std::path::Path::new(&args.input_file_path),
-                    RecursiveMode::NonRecursive,
-                )
-                .unwrap();
-
-            let file = File::open(&args.input_file_path).unwrap();
-            let mut pos = file.metadata().unwrap().len();
-            let path = args.input_file_path;
-
             loop {
                 if let Ok(event) = rx.recv().expect("To receive an filesystem event") {
                     if let EventKind::Modify(_) = event.kind {
-                        let mut file = File::open(&path).unwrap();
-                        file.seek(SeekFrom::Start(pos)).unwrap();
-                        let reader = BufReader::new(file);
+                        let (found_end_pattern, new_pos) = read_file(
+                            &args.input_file_path,
+                            output_stream.by_ref(),
+                            &session_id_string,
+                            pos,
+                            &args.end_pattern,
+                        );
 
-                        for line in reader.lines() {
-                            let line = line.unwrap();
-
-                            writeln!(output_stream, "{line}").expect("Be able to write output");
-
-                            if line.contains(&session_id_string) && line.contains(&args.end_pattern)
-                            {
-                                return;
-                            }
+                        if found_end_pattern {
+                            return;
                         }
 
-                        pos = std::fs::metadata(&path).unwrap().len();
+                        pos = new_pos;
                     }
                 }
             }
         }
     } else {
+        let bytes = fs::read(&args.input_file_path).expect("Failed to read file");
+
+        let file_content = String::from_utf8_lossy(&bytes);
+        let file_content: Vec<&str> = file_content.lines().collect();
+
         let mut start_line_idx: Option<usize> = None;
         let mut end_line_idx: Option<usize> = None;
 
@@ -165,4 +156,29 @@ pub fn session_handler(mut args: CliSessionArgs) {
                 .expect("Be able to write output");
         }
     }
+}
+
+fn read_file(
+    input_file_path: &str,
+    output_stream: &mut dyn Write,
+    session_id_string: &str,
+    pos: u64,
+    end_pattern: &str,
+) -> (bool, u64) {
+    let mut file = File::open(input_file_path).unwrap();
+    file.seek(SeekFrom::Start(pos)).unwrap();
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line.unwrap();
+        // let line = line.trim_start_matches('\n');
+
+        writeln!(output_stream, "{line}").expect("Be able to write output");
+
+        if line.contains(session_id_string) && line.contains(end_pattern) {
+            return (true, 0);
+        }
+    }
+
+    (false, std::fs::metadata(input_file_path).unwrap().len())
 }
