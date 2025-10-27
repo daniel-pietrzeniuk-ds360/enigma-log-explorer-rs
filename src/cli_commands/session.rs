@@ -1,24 +1,33 @@
-use std::{fs::{self, File}, io::{self, Write}};
+use std::{
+    fs::{self, File},
+    io::{self, BufRead, BufReader, Seek, SeekFrom, Write},
+    sync::mpsc::channel,
+};
 
 use clap::Parser;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 #[derive(Parser, Debug)]
 pub struct CliSessionArgs {
     pub input_file_path: String,
     pub session_id: u32,
+
     /// Print output to convinient file
     #[arg(short, long)]
     pub file: bool,
     /// Overrides output file
     #[arg(short, long)]
     pub r#override: bool,
-    // /// Watches for file changes (implicitly sets and requires `end_pattern_mode` to be true)
-    // #[arg(short, long)]
-    // pub watch: bool,
+
+    /// Watches for file changes (implicitly sets `end_pattern_mode`)
+    #[arg(short, long)]
+    pub watch: bool,
+    /// Skips old changes and watches only for new ones (implicitly sets `watch`)
+    #[arg(long)]
+    pub watch_new: bool,
     /// Alternatively to default mode, writes output until `end_pattern` is encountered
     #[arg(short, long)]
     pub end_pattern_mode: bool,
-    /// (implicitly sets and requires `end_pattern_mode` to be true)
     #[arg(long, default_value_t=CliSessionArgs::default_end_pattern())]
     pub end_pattern: String,
 }
@@ -29,11 +38,14 @@ impl CliSessionArgs {
     }
 }
 
+pub fn session_handler(mut args: CliSessionArgs) {
+    if args.watch_new {
+        args.watch = true;
+    }
 
-pub fn session_handler(args: CliSessionArgs) {
-    // if args.watch {
-    //     args.end_pattern_mode = true;
-    // }
+    if args.watch {
+        args.end_pattern_mode = true;
+    }
 
     let bytes = fs::read(&args.input_file_path).expect("Failed to read file");
 
@@ -42,35 +54,77 @@ pub fn session_handler(args: CliSessionArgs) {
 
     let session_id_string = format!("SessionId: {}", args.session_id);
 
-    let mut output_stream: Box<dyn Write> = if args.file
-    {
-        let output_file_name = format!("{}.session-{}.log", &args.input_file_path, &args.session_id);
+    let mut output_stream: Box<dyn Write> = if args.file {
+        let output_file_name =
+            format!("{}.session-{}.log", &args.input_file_path, &args.session_id);
 
         if fs::exists(&output_file_name).unwrap() && !args.r#override {
             panic!("Output file \"{output_file_name}\" already exists")
         }
 
         Box::new(File::create(output_file_name).unwrap())
-    }
-    else {
+    } else {
         Box::new(io::stdout())
     };
 
-
     if args.end_pattern_mode {
-        let mut has_found_session_id = false;
+        if !args.watch_new {
+            let mut has_found_session_id = false;
 
-        for line in file_content {
-            if !has_found_session_id && line.contains(&session_id_string) {
-                has_found_session_id = true;
+            for line in file_content {
+                if !has_found_session_id && line.contains(&session_id_string) {
+                    has_found_session_id = true;
+                }
+
+                if has_found_session_id {
+                    writeln!(output_stream, "{line}").expect("Be able to write output");
+
+                    if line.contains(&session_id_string) && line.contains(&args.end_pattern) {
+                        dbg!(
+                            "end_pattern_mode prepass finished due finding end_pattern on line: \"{:?}\"",
+                            line
+                        );
+                        return;
+                    }
+                }
             }
+        }
 
-            if has_found_session_id {
-                writeln!(output_stream, "{line}").expect("Be able to write output");
-                // output_stream.write_all(line.as_bytes()).expect("Be able to write output");
+        if args.watch {
+            let (tx, rx) = channel();
 
-                if line.contains(&args.end_pattern) {
-                    break;
+            let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).unwrap();
+            watcher
+                .watch(
+                    std::path::Path::new(&args.input_file_path),
+                    RecursiveMode::NonRecursive,
+                )
+                .unwrap();
+
+            let file = File::open(&args.input_file_path).unwrap();
+            let mut pos = file.metadata().unwrap().len();
+            let path = args.input_file_path;
+
+            loop {
+                if let Ok(event) = rx.recv().expect("To receive an filesystem event") {
+                    if let EventKind::Modify(_) = event.kind {
+                        let mut file = File::open(&path).unwrap();
+                        file.seek(SeekFrom::Start(pos)).unwrap();
+                        let reader = BufReader::new(file);
+
+                        for line in reader.lines() {
+                            let line = line.unwrap();
+
+                            writeln!(output_stream, "{line}").expect("Be able to write output");
+
+                            if line.contains(&session_id_string) && line.contains(&args.end_pattern)
+                            {
+                                return;
+                            }
+                        }
+
+                        pos = std::fs::metadata(&path).unwrap().len();
+                    }
                 }
             }
         }
@@ -97,7 +151,7 @@ pub fn session_handler(args: CliSessionArgs) {
             } else {
                 usize::MAX
             };
-    
+
             let result: String = file_content
                 .iter()
                 .skip(skip)
@@ -106,7 +160,9 @@ pub fn session_handler(args: CliSessionArgs) {
                 .collect::<Vec<&str>>()
                 .join("\n");
 
-            output_stream.write_all(result.as_bytes()).expect("Be able to write output");
+            output_stream
+                .write_all(result.as_bytes())
+                .expect("Be able to write output");
         }
     }
 }
