@@ -1,8 +1,8 @@
 [package]
 name = "enigma-log-explorer"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.48", features = ["derive"] }
+clap = { version = "4.5.51", features = ["derive"] }
 notify = "8.2.0"
